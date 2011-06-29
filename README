@@ -1,0 +1,7 @@
+# Simple SVM
+
+Simple SVM is a small project to make good quality haskell bindings for libsvm
+
+## Current Status
+
+Currently this is just a preliminary version, which incidentally, is not at all simple.
