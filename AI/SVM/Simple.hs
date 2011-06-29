@@ -1,6 +1,20 @@
 {-# LANGUAGE ForeignFunctionInterface, BangPatterns, ScopedTypeVariables, TupleSections, 
              RecordWildCards #-}
-module SVMSimple (loadSVM, saveSVM
+-------------------------------------------------------------------------------
+-- |
+-- Module     : Bindings.SVM
+-- Copyright  : (c) 2011 Paulo Tanimoto, Ville Tirronen
+-- License    : BSD3
+--
+-- Maintainer : Ville Tirronen <aleator@gmail.com>
+--              Paulo Tanimoto <ptanimoto@gmail.com>
+--
+-------------------------------------------------------------------------------
+-- For a high-level description of the C API, refer to the README file 
+-- included in the libsvm archive, available for download at 
+-- <http://www.csie.ntu.edu.tw/~cjlin/libsvm/>.
+
+module AI.SVM.Simple (loadSVM, saveSVM
                  ,trainSVM, predict
                  , SVM
                  , SVMType(..), Kernel(..))  where
