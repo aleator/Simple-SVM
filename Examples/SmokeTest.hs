@@ -27,7 +27,9 @@ main = do
                        ,(1, V.fromList [1,1])
                        ,(1, V.fromList [0,0])
                         ]
-    svm2 <- trainSVM (C_SVC 1) Linear trainingData
+    svm_ <- trainSVM (C_SVC 1) (RBF 1) trainingData
+    saveSVM "model2" svm_
+    svm2 <- loadSVM "model2"
     print $ predict svm2 $ V.fromList [0,1]
     print $ predict svm2 $ V.fromList [1,0]
     print $ predict svm2 $ V.fromList [0.5,0.5]
