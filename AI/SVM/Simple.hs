@@ -1,5 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface, BangPatterns, ScopedTypeVariables,
-             TupleSections, ViewPatterns, RecordWildCards #-}
+             TupleSections, ViewPatterns, RecordWildCards, FlexibleInstances #-}
 -------------------------------------------------------------------------------
 -- |
 -- Module     : Bindings.SVM
@@ -9,18 +9,28 @@
 -- Maintainer : Ville Tirronen <aleator@gmail.com>
 --              Paulo Tanimoto <ptanimoto@gmail.com>
 --
+-- Notes : The module is currently not robust to inputs of wrong dimensionality
+--         and is affected by security risks inherent in libsvm model loading.
 -------------------------------------------------------------------------------
 -- For a high-level description of the C API, refer to the README file 
 -- included in the libsvm archive, available for download at 
 -- <http://www.csie.ntu.edu.tw/~cjlin/libsvm/>.
 
-module AI.SVM.Simple (loadSVM, saveSVM
-                 ,trainSVM, predict
+module AI.SVM.Simple (
+                  -- * Types
+                   SVM
+                 , SVMType(..), Kernel(..)
                  ,getNRClasses
-                 , SVM
-                 , SVMType(..), Kernel(..))  where
+                  -- * File operations
+                 ,loadSVM, saveSVM
+                  -- * Training
+                 ,trainSVM
+                  -- * Prediction
+                 ,predict
+                 )  where
 
 import qualified Data.Vector.Storable as V
+import qualified Data.Vector as GV
 import Data.Vector.Storable ((!))
 import Bindings.SVM
 import Foreign.C.Types
@@ -35,8 +45,33 @@ import Control.Applicative
 import System.IO.Unsafe
 import Foreign.Storable
 import Control.Monad
+import Control.Arrow (second)
 import System.Directory
+import Data.IORef
 
+class SVMVector a where
+    convert :: a -> V.Vector Double
+
+instance SVMVector (V.Vector Double) where
+    convert = id
+
+instance SVMVector (GV.Vector Double) where
+    convert = GV.convert
+
+instance SVMVector [Double] where
+    convert = V.fromList
+
+instance SVMVector (Double,Double) where
+    convert (a,b) = V.fromList [a,b]
+
+instance SVMVector (Double,Double,Double) where
+    convert (a,b,c) = V.fromList [a,b,c]
+
+instance SVMVector (Double,Double,Double,Double) where
+    convert (a,b,c,d) = V.fromList [a,b,c,d]
+
+instance SVMVector (Double,Double,Double,Double,Double) where
+    convert (a,b,c,d,e) = V.fromList [a,b,c,d,e]
 
 {-# SPECIALIZE convertDense :: V.Vector Double -> V.Vector C'svm_node #-}
 {-# SPECIALIZE convertDense :: V.Vector Float -> V.Vector C'svm_node #-}
@@ -101,8 +136,9 @@ getNRClasses (getModelPtr -> fptr)
     = fromIntegral <$>  withForeignPtr fptr c'svm_get_nr_class
 
 -- | Predict the class of a vector with an SVM.
-predict :: SVM -> V.Vector Double -> Double
-predict (getModelPtr -> fptr) vec = unsafePerformIO $
+predict :: (SVMVector a) => SVM -> a -> Double
+predict (getModelPtr -> fptr) 
+        (convert -> vec) = unsafePerformIO $
                            withForeignPtr fptr $ \modelPtr -> 
                            let nodes = convertDense vec
                            in realToFrac <$> V.unsafeWith nodes 
@@ -197,9 +233,11 @@ foreign import ccall "wrapper"
   wrapPrintF :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
 -- | Create an SVM from the training data
-trainSVM :: SVMType -> Kernel -> [(Double, V.Vector Double)] -> IO SVM
-trainSVM svm kernel dataSet = do
-    pf <- wrapPrintF (const $ return ()) --(\cstr -> peekCString cstr >>= print . (, ":HS")) 
+trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Double, a)] -> IO (String, SVM)
+trainSVM svm kernel (map (second convert) -> dataSet) = do
+    messages <- newIORef []
+    let append x = modifyIORef messages (x:)
+    pf <- wrapPrintF (peekCString >=> append) 
           -- The above is just a test. Realistically at that point there
           -- should be an ioref that captures the output which would then
           -- be returned from this function.
@@ -209,9 +247,11 @@ trainSVM svm kernel dataSet = do
     poke ptr_parameters (setParameters svm kernel)
     modelPtr <- with problem $ \ptr_problem -> 
                   c'svm_train ptr_problem ptr_parameters
-    SVM <$> C.newForeignPtr modelPtr 
-                    (free ptr_parameters>>deleteProblem (problem, ptr_nodes)
-                    >>modelFinalizer modelPtr) 
+    message  <- unlines . reverse <$> readIORef messages 
+    (message ,) . SVM  <$> C.newForeignPtr modelPtr 
+                    (free ptr_parameters
+                     >>deleteProblem (problem, ptr_nodes)
+                     >>modelFinalizer modelPtr) 
 
 
 
