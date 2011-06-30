@@ -16,6 +16,7 @@
 
 module AI.SVM.Simple (loadSVM, saveSVM
                  ,trainSVM, predict
+                 ,getNRClasses
                  , SVM
                  , SVMType(..), Kernel(..))  where
 
@@ -32,6 +33,7 @@ import Control.Applicative
 import System.IO.Unsafe
 import Foreign.Storable
 import Control.Monad
+import System.Directory
 
 
 {-# SPECIALIZE convertDense :: V.Vector Double -> V.Vector C'svm_node #-}
@@ -41,7 +43,7 @@ convertDense v = V.generate (dim+1) readVal
     where
         dim = V.length v
         readVal !n | n >= dim = C'svm_node (-1) 0
-        readVal !n = C'svm_node (fromIntegral n) (realToFrac $ v ! n)
+        readVal !n = C'svm_node (fromIntegral n+1) (realToFrac $ v ! n)
 
 
 withProblem :: [(Double, V.Vector Double)] -> (Ptr C'svm_problem -> IO b) -> IO b
@@ -54,7 +56,7 @@ withProblem v op = -- Well. This turned out super ugly. Also, this is a veritabl
                         with (C'svm_problem (fromIntegral dim) ptr_y ptr_offsets) op
     where 
         dim = length v
-        lengths = map (V.length . snd) v
+        lengths = map ((+1) . V.length . snd) v
         offsetPtrs addr = V.fromList . take dim $
                           [addr `plusPtr` (idx * sizeOf (xs ! 0))
                           | idx <- scanl (+) 0 lengths]
@@ -69,9 +71,15 @@ newtype SVM = SVM (ForeignPtr C'svm_model)
 modelFinalizer :: Ptr C'svm_model -> IO ()
 modelFinalizer modelPtr = with modelPtr c'svm_free_and_destroy_model
 
--- | load an svm from a file.
+-- | load an svm from a file. This function is rather unsafe, since 
+--   a bad model file could cause libsvm to segfault. Also, this could
+--   be hugely exploitable by malicious model makers.
 loadSVM :: FilePath -> IO SVM
 loadSVM fp = do
+    e <- doesFileExist fp
+    when (not e) $ error "Model does not exist"
+        -- Not finding the file causes a bus error. Could do without that..
+        -- #TODO: Make a smarter error
     ptr <- withCString fp c'svm_load_model
     let fin = modelFinalizer ptr
     SVM <$> C.newForeignPtr ptr fin
@@ -83,13 +91,15 @@ saveSVM fp (SVM fptr) =
     withCString fp      $ \cstr      ->
     c'svm_save_model cstr model_ptr
 
+getNRClasses (SVM fptr) = fromIntegral <$>  withForeignPtr fptr c'svm_get_nr_class
 
 -- | Predict the class of a vector with an SVM.
 predict :: SVM -> V.Vector Double -> Double
 predict (SVM fptr) vec = unsafePerformIO $
                            withForeignPtr fptr $ \modelPtr -> 
                            let nodes = convertDense vec
-                           in realToFrac <$> V.unsafeWith nodes (c'svm_predict modelPtr)
+                           in realToFrac <$> V.unsafeWith nodes 
+                                             (c'svm_predict modelPtr)
 
 defaultParamers = C'svm_parameter {
       c'svm_parameter'svm_type = c'C_SVC
@@ -133,22 +143,34 @@ rf = realToFrac
 setKernelParameters Linear p = p
 setKernelParameters (Polynomial {..}) p = p{c'svm_parameter'gamma=rf gamma
                                            ,c'svm_parameter'coef0=rf coef0
-                                           ,c'svm_parameter'degree=fromIntegral degree}
-setKernelParameters (RBF {..}) p        = p{c'svm_parameter'gamma=rf gamma }
+                                           ,c'svm_parameter'degree=fromIntegral degree
+                                           ,c'svm_parameter'kernel_type=c'POLY
+                                           }
+setKernelParameters (RBF {..}) p        = p{c'svm_parameter'gamma=rf gamma 
+                                           ,c'svm_parameter'kernel_type=c'RBF
+                                           }
 setKernelParameters (Sigmoid {..}) p    = p{c'svm_parameter'gamma=rf gamma
-                                           ,c'svm_parameter'coef0=rf coef0 }
+                                           ,c'svm_parameter'coef0=rf coef0 
+                                           ,c'svm_parameter'kernel_type=c'SIGMOID
+                                           }
 
-setTypeParameters (C_SVC cost) p     = p{c'svm_parameter'C=rf cost}
+setTypeParameters (C_SVC cost) p     = p{c'svm_parameter'C=rf cost
+                                        ,c'svm_parameter'svm_type=c'C_SVC}
 
 setTypeParameters (NU_SVC{..}) p     = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'nu=rf nu}
-setTypeParameters (ONE_CLASS{..}) p  = p{c'svm_parameter'nu=rf nu}
+                                        ,c'svm_parameter'nu=rf nu
+                                        ,c'svm_parameter'svm_type=c'NU_SVC}
+
+setTypeParameters (ONE_CLASS{..}) p  = p{c'svm_parameter'nu=rf nu
+                                        ,c'svm_parameter'svm_type=c'ONE_CLASS}
 
 setTypeParameters (EPSILON_SVR{..}) p = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'p=rf epsilon}
+                                        ,c'svm_parameter'p=rf epsilon
+                                        ,c'svm_parameter'svm_type=c'EPSILON_SVR}
 
 setTypeParameters (NU_SVR {..}) p    = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'nu=rf nu}
+                                        ,c'svm_parameter'nu=rf nu
+                                        ,c'svm_parameter'svm_type=c'NU_SVR}
 
 
 withParameters svm kernel op = with parameters op
@@ -170,7 +192,7 @@ foreign import ccall "wrapper"
 -- | Create an SVM from the training data
 trainSVM :: SVMType -> Kernel -> [(Double, V.Vector Double)] -> IO SVM
 trainSVM svm kernel dataSet = do
-    pf <- wrapPrintF (\cstr -> peekCString cstr >>= print . (, ":HS")) 
+    pf <- wrapPrintF (const $ return ()) --(\cstr -> peekCString cstr >>= print . (, ":HS")) 
           -- The above is just a test. Realistically at that point there
           -- should be an ioref that captures the output which would then
           -- be returned from this function.

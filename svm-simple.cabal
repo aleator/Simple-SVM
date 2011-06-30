@@ -31,4 +31,5 @@ library
   build-depends:
     base         >= 4   && < 5,
     bindings-svm >= 0.2.0 && < 0.3,
-    vector       >= 0.7.0.1 && < 0.8
+    vector       >= 0.7.0.1 && < 0.8,
+    directory    >= 1.1.0.0 && < 1.2
