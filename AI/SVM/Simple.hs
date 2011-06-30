@@ -48,6 +48,8 @@ import Control.Monad
 import Control.Arrow (second)
 import System.Directory
 import Data.IORef
+import Control.Exception 
+import System.IO.Error
 
 class SVMVector a where
     convert :: a -> V.Vector Double
@@ -118,9 +120,11 @@ modelFinalizer modelPtr = with modelPtr c'svm_free_and_destroy_model
 loadSVM :: FilePath -> IO SVM
 loadSVM fp = do
     e <- doesFileExist fp
-    unless e $ error "Model does not exist"
+    unless e $ ioError $ mkIOError doesNotExistErrorType 
+                                   ("Model file "++show fp++" does not exist")
+                                   Nothing
+                                   (Just fp)
         -- Not finding the file causes a bus error. Could do without that..
-        -- #TODO: Make a smarter error
     ptr <- withCString fp c'svm_load_model
     let fin = modelFinalizer ptr
     SVM <$> C.newForeignPtr ptr fin
