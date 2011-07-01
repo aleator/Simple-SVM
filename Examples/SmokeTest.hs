@@ -25,14 +25,27 @@ main = do
     let trainingData = [(-1, V.fromList [0,1])
                        ,(-1, V.fromList [1,0])
                        ,(1, V.fromList [1,1])
-                       ,(1, V.fromList [0,0])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(-1, V.fromList [1,0])
+                       ,(1, V.fromList [1,1])
+                       ,(1, V.fromList [0,0::Double])
                         ]
-    svm_ <- trainSVM (C_SVC 1) (RBF 1) trainingData
-    saveSVM "model2" svm_
-    svm2 <- loadSVM "model2"
-    print $ predict svm2 $ V.fromList [0,1]
-    print $ predict svm2 $ V.fromList [1,0]
-    print $ predict svm2 $ V.fromList [0.5,0.5]
-    print $ predict svm2 $ V.fromList [1,1]
+    (msg, r) <- crossvalidate (C_SVC 1) (RBF 1) 2 trainingData
+    print ("cval",msg, r)
+
+    (msg,svm2) <- trainSVM (C_SVC 1) (RBF 1) trainingData
+    print $ predict svm2 $ [0,1::Double]
+    print $ predict svm2 $ [1,0::Double]
+    print $ predict svm2 $ [0.5,0.5::Double]
+    print $ predict svm2 $ [1,1::Double]
 
 

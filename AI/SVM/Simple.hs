@@ -3,7 +3,7 @@
 -------------------------------------------------------------------------------
 -- |
 -- Module     : Bindings.SVM
--- Copyright  : (c) 2011 Paulo Tanimoto, Ville Tirronen
+-- Copyright  : (c) 2011 Ville Tirronen
 -- License    : BSD3
 --
 -- Maintainer : Ville Tirronen <aleator@gmail.com>
@@ -11,6 +11,11 @@
 --
 -- Notes : The module is currently not robust to inputs of wrong dimensionality
 --         and is affected by security risks inherent in libsvm model loading.
+--
+-- Important TODO-items: 
+--  * Handle the issue of crashing the system by passing vectors of dimension to the SVMs
+--  * Split this library into high and low level parts
+--
 -------------------------------------------------------------------------------
 -- For a high-level description of the C API, refer to the README file 
 -- included in the libsvm archive, available for download at 
@@ -24,9 +29,14 @@ module AI.SVM.Simple (
                   -- * File operations
                  ,loadSVM, saveSVM
                   -- * Training
-                 ,trainSVM
+                 ,trainSVM --, crossvalidate
                   -- * Prediction
                  ,predict
+                 -- * High level
+                 ,RegressorType(..), ClassifierType(..)
+                 ,trainClassifier, classify   
+                 ,trainOneClass, inSet, OneClassResult(..)
+                 ,trainRegressor, predictRegression
                  )  where
 
 import qualified Data.Vector.Storable as V
@@ -45,11 +55,15 @@ import Control.Applicative
 import System.IO.Unsafe
 import Foreign.Storable
 import Control.Monad
-import Control.Arrow (second)
+import Control.Arrow (first, second, (***), (&&&))
 import System.Directory
 import Data.IORef
 import Control.Exception 
 import System.IO.Error
+import Data.Tuple
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.List
 
 class SVMVector a where
     convert :: a -> V.Vector Double
@@ -75,6 +89,13 @@ instance SVMVector (Double,Double,Double,Double) where
 instance SVMVector (Double,Double,Double,Double,Double) where
     convert (a,b,c,d,e) = V.fromList [a,b,c,d,e]
 
+
+class ClassifierTrainingSet a where
+    dataset :: SVMVector  b => a -> [(Double, b)]
+
+--instance (Label label, SVMVector vector) => ClassifierTrainingSet [(label, vector)] where
+--    dataset = map (first labelToDouble)
+
 {-# SPECIALIZE convertDense :: V.Vector Double -> V.Vector C'svm_node #-}
 {-# SPECIALIZE convertDense :: V.Vector Float -> V.Vector C'svm_node #-}
 convertDense :: (V.Storable a, Real a) => V.Vector a -> V.Vector C'svm_node
@@ -96,10 +117,10 @@ createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
         dim = length v
         lengths = map ((+1) . V.length . snd) v
         offsetPtrs addr = take dim 
-                          [addr `plusPtr` (idx * sizeOf (head xs)) -- #TODO: Safer alternative to head
+                          [addr `plusPtr` (idx * sizeOf (C'svm_node undefined undefined)) 
                           | idx <- scanl (+) 0 lengths]
         y   = map (realToFrac . fst)  v
-        xs  = concatMap (V.toList . extractSvmNode . snd) $ v
+        xs  = concatMap (V.toList . extractSvmNode . snd) v
         extractSvmNode x = convertDense $ V.generate (V.length x) (x !)
 
 deleteProblem (C'svm_problem l class_array offset_array , node_array) =
@@ -108,6 +129,9 @@ deleteProblem (C'svm_problem l class_array offset_array , node_array) =
 
 -- | A Support Vector Machine
 newtype SVM = SVM  (ForeignPtr C'svm_model)
+data SVMClassifier a = SVMClassifier SVM (Map a Double) (Map Double a)
+newtype SVMRegressor  = SVMRegressor SVM 
+newtype SVMOneClass   = SVMOneClass SVM 
 
 getModelPtr (SVM fp) = fp
 
@@ -136,6 +160,7 @@ saveSVM fp (getModelPtr -> fptr) =
     withCString fp      $ \cstr      ->
     c'svm_save_model cstr model_ptr
 
+-- | Number of classes the model expects.
 getNRClasses (getModelPtr -> fptr) 
     = fromIntegral <$>  withForeignPtr fptr c'svm_get_nr_class
 
@@ -169,15 +194,15 @@ defaultParamers = C'svm_parameter {
 -- | SVM variants
 data SVMType = 
                -- | C svm (the default tool for classification tasks)
-               C_SVC  {cost :: Double}
+               C_SVC  {cost_ :: Double}
                -- | Nu svm
-             | NU_SVC {cost :: Double, nu :: Double}
+             | NU_SVC {cost_ :: Double, nu_ :: Double}
                -- | One class svm
-             | ONE_CLASS {nu :: Double}
+             | ONE_CLASS {nu_ :: Double}
                -- | Epsilon support vector regressor
-             | EPSILON_SVR {cost :: Double, epsilon :: Double}
+             | EPSILON_SVR {cost_ :: Double, epsilon_ :: Double}
                -- | Nu support vector regressor 
-             | NU_SVR {cost :: Double, nu :: Double}
+             | NU_SVR {cost_ :: Double, nu_ :: Double}
 
 -- | SVM kernel type
 data Kernel = Linear 
@@ -201,22 +226,22 @@ setKernelParameters (Sigmoid {..}) p    = p{c'svm_parameter'gamma=rf gamma
                                            ,c'svm_parameter'kernel_type=c'SIGMOID
                                            }
 
-setTypeParameters (C_SVC cost) p     = p{c'svm_parameter'C=rf cost
+setTypeParameters (C_SVC cost_) p     = p{c'svm_parameter'C=rf cost_
                                         ,c'svm_parameter'svm_type=c'C_SVC}
 
-setTypeParameters (NU_SVC{..}) p     = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'nu=rf nu
+setTypeParameters (NU_SVC{..}) p     = p{c'svm_parameter'C=rf cost_
+                                        ,c'svm_parameter'nu=rf nu_
                                         ,c'svm_parameter'svm_type=c'NU_SVC}
 
-setTypeParameters (ONE_CLASS{..}) p  = p{c'svm_parameter'nu=rf nu
+setTypeParameters (ONE_CLASS{..}) p  = p{c'svm_parameter'nu=rf nu_
                                         ,c'svm_parameter'svm_type=c'ONE_CLASS}
 
-setTypeParameters (EPSILON_SVR{..}) p = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'p=rf epsilon
+setTypeParameters (EPSILON_SVR{..}) p = p{c'svm_parameter'C=rf cost_
+                                        ,c'svm_parameter'p=rf epsilon_
                                         ,c'svm_parameter'svm_type=c'EPSILON_SVR}
 
-setTypeParameters (NU_SVR {..}) p    = p{c'svm_parameter'C=rf cost
-                                        ,c'svm_parameter'nu=rf nu
+setTypeParameters (NU_SVR {..}) p    = p{c'svm_parameter'C=rf cost_
+                                        ,c'svm_parameter'nu=rf nu_
                                         ,c'svm_parameter'svm_type=c'NU_SVR}
 
 
@@ -235,6 +260,79 @@ setParameters svm kernel = parameters
 
 foreign import ccall "wrapper"
   wrapPrintF :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
+
+-- | Supported SVM classifiers
+data ClassifierType =
+               C  {cost :: Double}
+             | NU {cost :: Double, nu :: Double}
+
+-- | Supported SVM regression machines
+data RegressorType =
+               Epsilon  Double Double
+             | NU_r     Double Double
+
+generalizeClassifier C{..} = C_SVC{cost_=cost}
+generalizeClassifier NU{..} = NU_SVC{cost_=cost, nu_=nu}
+
+generalizeRegressor (NU_r cost nu)  = NU_SVR{cost_=cost, nu_=nu}
+generalizeRegressor (Epsilon cost eps) = EPSILON_SVR{cost_=cost, epsilon_=eps}
+
+-- | Train an SVM classifier of given type
+trainClassifier
+  :: (SVMVector b, Ord a) =>
+     ClassifierType
+     -> Kernel
+     -> [(a, b)]
+     -> (String, SVMClassifier a)
+
+trainClassifier ctype kernel dataset = unsafePerformIO $ do
+    let l = zip (nub . labels $ dataset) [1..]
+        to   = Map.fromList l
+        from = Map.fromList $ map swap l
+        doubleDataSet =  map ((\x -> to Map.! x) *** convert) dataset    
+
+    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel doubleDataSet
+    return . (m,) $ SVMClassifier svm to from
+   where 
+    labels = map fst
+
+
+-- | Classify a vector
+classify :: SVMVector v => SVMClassifier a -> v -> a
+classify (SVMClassifier svm to from) vector = from Map.! predict svm vector
+
+-- | Train an one class classifier
+trainOneClass :: SVMVector a => Double -> Kernel -> [a] -> (String, SVMOneClass)
+trainOneClass nu kernel dataset = unsafePerformIO $ do
+    let  doubleDataSet =  map (const 1 &&& convert) dataset    
+
+    (m,svm) <- trainSVM (ONE_CLASS nu) kernel doubleDataSet
+    return . (m,) $ SVMOneClass svm
+
+-- | The result type of one class svm. The prediction is that point is either `In`the
+--   region defined by the training set or `Out`side.
+data OneClassResult = Out | In deriving (Eq,Show)
+
+-- | Predict wether given point belongs to the region defined by the oneclass svm
+inSet :: SVMVector a => SVMOneClass -> a -> OneClassResult
+inSet (SVMOneClass svm) vector = if predict svm vector <0 
+                                  then Out
+                                  else In
+
+-- | Train an SVM regression machine
+trainRegressor
+  :: (SVMVector b') =>
+     RegressorType -> Kernel -> [(Double, b')] -> (String, SVMRegressor)
+
+trainRegressor rtype kernel dataset = unsafePerformIO $ do
+    let  doubleDataSet =  map (second convert) dataset    
+    (m,svm) <- trainSVM (generalizeRegressor rtype) kernel doubleDataSet
+    return . (m,) $ SVMRegressor svm
+
+-- | Predict value for given vector via regression
+predictRegression :: SVMVector a => SVMRegressor -> a -> Double
+predictRegression (SVMRegressor svm) (convert -> v) = predict svm v
+                         
 
 -- | Create an SVM from the training data
 trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Double, a)] -> IO (String, SVM)
@@ -257,6 +355,33 @@ trainSVM svm kernel (map (second convert) -> dataSet) = do
                      >>deleteProblem (problem, ptr_nodes)
                      >>modelFinalizer modelPtr) 
 
-
+-- | Cross validate SVM. This is faster than training and predicting for each fold
+--   separately, since there are no extra conversions done between libsvm and haskell.
+--   Currently broken.
+-- crossvalidate
+--   :: (SVMVector b) => SVMType -> Kernel -> Int -> [(Double, b)] -> IO (String, [Double])
+-- crossvalidate svm kernel folds (map (second convert) -> dataSet) = do
+--     messages <- newIORef []
+--     let append x = modifyIORef messages (x:)
+--     pf <- wrapPrintF (peekCString >=> append) 
+--           -- The above is just a test. Realistically at that point there
+--           -- should be an ioref that captures the output which would then
+--           -- be returned from this function.
+--     c'svm_set_print_string_function pf
+--     (problem, ptr_nodes) <- createProblem dataSet
+--     ptr_parameters <- malloc 
+--     poke ptr_parameters (setParameters svm kernel)
+--     
+--     result_ptr :: Ptr CDouble <- mallocArray (length dataSet)
+-- 
+--     with problem $ \ptr_problem -> 
+--          c'svm_cross_validation ptr_problem ptr_parameters (fromIntegral folds) result_ptr  
+-- 
+--     res <- peekArray (length dataSet) result_ptr
+--     message  <- unlines . reverse <$> readIORef messages 
+-- 
+--     free result_ptr >> free ptr_parameters >> deleteProblem (problem,ptr_nodes)
+-- 
+--     return (message,map realToFrac res)
 
 

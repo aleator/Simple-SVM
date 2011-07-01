@@ -1,7 +1,15 @@
-# Simple SVM
+Simple SVM
+==========
 
 Simple SVM is a small project to make good quality haskell bindings for libsvm
 
-## Current Status
+Current Status
+--------------
 
-Currently this is just a preliminary version, which incidentally, is not at all simple.
+Currently this is a preliminary version, which might change quite drastically in the future.
+
+How to use?
+-----------
+
+See the Examples/Plot.hs and Examples/PlotOneClass.hs for simple 2D examples. They produce
+graphics and require Diagrams-lib to function 
