@@ -1,11 +1,19 @@
 name:                svm-simple
-version:             0.1.0
+version:             0.2.0
 synopsis:            Medium level, simplified, bindings to libsvm
 description:
-  Simplified bindings to libsvm <http://www.csie.ntu.edu.tw/~cjlin/libsvm/>.
+  This is a set of simplified bindings to libsvm <http://www.csie.ntu.edu.tw/~cjlin/libsvm/> suite
+  of support vector machines. This package provides tools for classification, one-class classification
+  and support vector regression. 
+  .
   The aim of this package is to make as easy to use bindings for libsvm as
-  possible. (But we are not yet there)
-  Changes in version 0.0.1
+  possible. 
+  .
+  Changes in version 0.2
+  .
+  Moved the low level stuff into AI.SVM.Base
+  .
+  Changes in version 0.1
   .
   * Initial version
   .
@@ -29,6 +37,7 @@ extra-source-files:
 library
   Exposed-modules:
     AI.SVM.Simple
+    AI.SVM.Base
   build-depends:
     base         >= 4   && < 5,
     bindings-svm >= 0.2.0 && < 0.3,
