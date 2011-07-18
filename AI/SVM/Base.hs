@@ -33,31 +33,34 @@ module AI.SVM.Base (
                  ,predict
                  )  where
 
-import qualified Data.Vector.Storable as V
-import qualified Data.Vector as GV
-import Data.Vector.Storable ((!))
 import Bindings.SVM
-import Foreign.C.Types
-import Foreign.C.String
-import Foreign.Ptr
-import Foreign.ForeignPtr
-import qualified Foreign.Concurrent as C
-import Foreign.Marshal.Utils
-import Foreign.Marshal.Array
-import Foreign.Marshal.Alloc
 import Control.Applicative
-import System.IO.Unsafe
-import Foreign.Storable
-import Control.Monad
 import Control.Arrow (first, second, (***), (&&&))
-import System.Directory
-import Data.IORef
 import Control.Exception 
-import System.IO.Error
-import Data.Tuple
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Control.Monad
+import Data.Binary
+import Data.IORef
 import Data.List
+import Data.Map (Map)
+import Data.Tuple
+import Data.Vector.Storable ((!))
+import Foreign.C.String
+import Foreign.C.Types
+import Foreign.ForeignPtr
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Array
+import Foreign.Marshal.Utils
+import Foreign.Ptr
+import Foreign.Storable
+import System.Directory
+import System.IO.Error
+import System.IO.Unsafe
+import qualified Data.ByteString.Lazy as B
+import qualified Data.Map as Map
+import qualified Data.Vector as GV
+import qualified Data.Vector.Storable as V
+import qualified Foreign.Concurrent as C
+import AI.SVM.Common
 
 class SVMVector a where
     convert :: a -> V.Vector Double
@@ -82,6 +85,7 @@ instance SVMVector (Double,Double,Double,Double) where
 
 instance SVMVector (Double,Double,Double,Double,Double) where
     convert (a,b,c,d,e) = V.fromList [a,b,c,d,e]
+
 
 
 
@@ -120,6 +124,20 @@ deleteProblem (C'svm_problem l class_array offset_array , node_array) =
 newtype SVM = SVM  (ForeignPtr C'svm_model)
 
 getModelPtr (SVM fp) = fp
+
+-- | Somewhat unsafe binary instance. This goes through the disk.
+instance Binary SVM where
+    put s = put $ idiotToStr s
+    get   = get >>= return . idiotFromStr
+
+idiotToStr svm = unsafePerformIO $ withTmp $ \tmp -> do
+                    saveSVM tmp svm
+                    B.readFile tmp
+idiotFromStr svm = unsafePerformIO $ withTmp $ \tmp -> do
+                    B.writeFile tmp svm
+                    loadSVM tmp
+                
+
 
 modelFinalizer :: Ptr C'svm_model -> IO ()
 modelFinalizer modelPtr = with modelPtr c'svm_free_and_destroy_model
@@ -176,6 +194,52 @@ defaultParamers = C'svm_parameter {
     , c'svm_parameter'shrinking = 1
     , c'svm_parameter'probability = 0
     }
+
+instance Binary CInt where
+    put cint = put (fromIntegral cint :: Int)
+    get = fromIntegral <$> (get :: Get Int) 
+
+instance Binary CDouble where
+    put cint = put (realToFrac cint :: Double)
+    get = realToFrac <$> (get :: Get Double) 
+
+encodeParams C'svm_parameter{..} = do
+    put c'svm_parameter'svm_type 
+    put c'svm_parameter'kernel_type 
+    put c'svm_parameter'degree 
+    put c'svm_parameter'gamma  
+    put c'svm_parameter'coef0  
+    put c'svm_parameter'cache_size 
+    put c'svm_parameter'eps 
+    put c'svm_parameter'C   
+    put c'svm_parameter'nr_weight 
+    --put c'svm_parameter'weight_label = nullPtr
+    --put c'svm_parameter'weight       = nullPtr
+    put c'svm_parameter'nu 
+    put c'svm_parameter'p  
+    put c'svm_parameter'shrinking
+    put c'svm_parameter'probability 
+
+decodeParams b = do     
+    c'svm_parameter'svm_type <- get
+    c'svm_parameter'kernel_type <- get
+    c'svm_parameter'degree      <- get   
+    c'svm_parameter'gamma       <- get 
+    c'svm_parameter'coef0       <- get
+    c'svm_parameter'cache_size  <- get 
+    c'svm_parameter'eps         <- get
+    c'svm_parameter'C           <- get
+    c'svm_parameter'nr_weight   <- get
+    c'svm_parameter'nu          <- get
+    c'svm_parameter'p           <- get
+    c'svm_parameter'shrinking   <- get
+    c'svm_parameter'probability <- get
+    let c'svm_parameter'weight_label = nullPtr
+        c'svm_parameter'weight = nullPtr
+    return C'svm_parameter{..}
+
+                   
+     
 
 -- | SVM variants
 data SVMType = 

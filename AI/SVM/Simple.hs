@@ -50,18 +50,16 @@ module AI.SVM.Simple (
 import AI.SVM.Base
 import Control.Applicative
 import Control.Arrow (second, (***), (&&&))
-import Control.Exception
 import Control.Monad
 import Data.Binary
-import Data.Char
 import Data.List
 import Data.Map (Map)
 import Data.Tuple
 import System.Directory
 import System.IO.Unsafe
-import System.Random.MWC
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as Map
+import AI.SVM.Common
 
 
 -- | Supported SVM classifiers
@@ -108,21 +106,6 @@ instance Persisting SVMRegressor where
 instance Persisting SVMOneClass where
     save fp (SVMOneClass a) = saveSVM fp a
     load fp = SVMOneClass <$> loadSVM fp
---
--- * Utilities
-randomName = withSystemRandom $ \gen -> map chr <$> replicateM 16 (uniformR (97,122::Int) gen)
-                                          :: IO String 
-
--- | Get a name for a temporary file, run operation with the filename and erase the file if the 
---   operation creates it.
-withTmp op = do
-        fp <- getTemporaryDirectory
-        out <- randomName
-        bracket (return ())
-                (\() -> do
-                         e <- doesFileExist out 
-                         when e (removeFile out))
-                (\() -> op (fp++"/"++out))
 
 -- | Train an SVM classifier of given type. 
 trainClassifier
