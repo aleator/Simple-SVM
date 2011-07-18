@@ -76,6 +76,10 @@ data SVMClassifier a = SVMClassifier SVM (Map a Double) (Map Double a)
 newtype SVMRegressor  = SVMRegressor SVM 
 newtype SVMOneClass   = SVMOneClass SVM 
 
+instance (Ord a, Binary a) => Binary (SVMClassifier a) where
+    put (SVMClassifier svm a b) = put svm >> put a >> put b
+    get = SVMClassifier <$> get <*> get <*> get 
+
 generalizeClassifier C{..} = C_SVC{cost_=cost}
 generalizeClassifier NU{..} = NU_SVC{cost_=cost, nu_=nu}
 
