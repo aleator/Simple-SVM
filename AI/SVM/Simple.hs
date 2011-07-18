@@ -1,5 +1,5 @@
-{-# LANGUAGE ForeignFunctionInterface, BangPatterns, ScopedTypeVariables,
-             TupleSections, ViewPatterns, RecordWildCards, FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables, TupleSections, ViewPatterns,
+             RecordWildCards, FlexibleInstances #-}
 -------------------------------------------------------------------------------
 -- |
 -- Module     : Bindings.SVM
@@ -42,15 +42,25 @@ module AI.SVM.Simple (
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
                  ,trainRegressor, predictRegression
+         -- * Unfortunate utilities
+                 ,Persisting(..)
                  )  where
 
 import AI.SVM.Base
+import Control.Applicative
 import Control.Arrow (second, (***), (&&&))
-import Data.Tuple
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Control.Exception
+import Control.Monad
+import Data.Binary
+import Data.Char
 import Data.List
+import Data.Map (Map)
+import Data.Tuple
+import System.Directory
 import System.IO.Unsafe
+import System.Random.MWC
+import qualified Data.ByteString.Lazy as B
+import qualified Data.Map as Map
 
 
 -- | Supported SVM classifiers
@@ -72,6 +82,46 @@ generalizeClassifier NU{..} = NU_SVC{cost_=cost, nu_=nu}
 
 generalizeRegressor (NU_r cost nu)  = NU_SVR{cost_=cost, nu_=nu}
 generalizeRegressor (Epsilon cost eps) = EPSILON_SVR{cost_=cost, epsilon_=eps}
+
+-- | A class for things that can be saved to file (i.e. stuff that can't be serialized into memory)
+class Persisting a where
+    save :: FilePath -> a -> IO ()
+    load :: FilePath -> IO a
+
+instance (Ord cls, Binary cls) => Persisting (SVMClassifier cls) where
+    save fp (SVMClassifier a to from) = do
+        saveSVM fp a
+        svm <- B.readFile fp
+        B.writeFile fp . encode $ (svm,to,from)
+    load fp = do
+        (svm,to,from) <- decode <$> B.readFile fp
+        r <- withTmp $ \tmp -> do
+              B.writeFile tmp svm
+              loadSVM tmp
+        return $ SVMClassifier r to from
+
+instance Persisting SVMRegressor where
+    save fp (SVMRegressor a) = saveSVM fp a
+    load fp = SVMRegressor <$> loadSVM fp
+
+instance Persisting SVMOneClass where
+    save fp (SVMOneClass a) = saveSVM fp a
+    load fp = SVMOneClass <$> loadSVM fp
+--
+-- * Utilities
+randomName = withSystemRandom $ \gen -> map chr <$> replicateM 16 (uniformR (97,122::Int) gen)
+                                          :: IO String 
+
+-- | Get a name for a temporary file, run operation with the filename and erase the file if the 
+--   operation creates it.
+withTmp op = do
+        fp <- getTemporaryDirectory
+        out <- randomName
+        bracket (return ())
+                (\() -> do
+                         e <- doesFileExist out 
+                         when e (removeFile out))
+                (\() -> op (fp++"/"++out))
 
 -- | Train an SVM classifier of given type. 
 trainClassifier
