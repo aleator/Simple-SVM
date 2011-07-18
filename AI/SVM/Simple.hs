@@ -80,6 +80,14 @@ instance (Ord a, Binary a) => Binary (SVMClassifier a) where
     put (SVMClassifier svm a b) = put svm >> put a >> put b
     get = SVMClassifier <$> get <*> get <*> get 
 
+instance Binary SVMRegressor where
+    put (SVMRegressor r) = put r
+    get = SVMRegressor <$> get
+
+instance Binary SVMOneClass where
+    put (SVMOneClass r) = put r
+    get = SVMOneClass <$> get
+
 generalizeClassifier C{..} = C_SVC{cost_=cost}
 generalizeClassifier NU{..} = NU_SVC{cost_=cost, nu_=nu}
 
