@@ -37,6 +37,7 @@ module AI.SVM.Simple (
 		 -- * Basic types
                   RegressorType(..), ClassifierType(..)
                  ,Kernel(..)
+                 ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
                  ,trainClassifier, classify   
 		 -- * One class machines
