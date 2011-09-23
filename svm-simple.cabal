@@ -1,11 +1,15 @@
 name:                svm-simple
-version:             0.2.2
+version:             0.2.5
 synopsis:            Medium level, simplified, bindings to libsvm
 description:
   This is a set of simplified bindings to libsvm <http://www.csie.ntu.edu.tw/~cjlin/libsvm/> suite
   of support vector machines. This package provides tools for classification, one-class classification
   and support vector regression. 
   .
+  .
+  Changes in version 0.2.5
+  .
+  * Crossvalidation for the high level interface 
   .
   Changes in version 0.2.2
   .

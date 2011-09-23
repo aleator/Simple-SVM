@@ -39,11 +39,11 @@ module AI.SVM.Simple (
                  ,Kernel(..)
                  ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
-                 ,trainClassifier, classify   
+                 ,trainClassifier, crossvalidateClassifier, classify   
 		 -- * One class machines
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
-                 ,trainRegressor, predictRegression
+                 ,trainRegressor, crossvalidateRegressor, predictRegression
          -- * Unfortunate utilities
                  ,Persisting(..)
                  )  where
@@ -127,15 +127,25 @@ trainClassifier
      -> Kernel
      -> [(a, b)]
      -> (String, SVMClassifier a)
-
 trainClassifier ctype kernel dataset = unsafePerformIO $ do
-    let l = zip (nub . labels $ dataset) [1..]
-        to   = Map.fromList l
-        from = Map.fromList $ map swap l
-        doubleDataSet =  map ((\x -> to Map.! x) *** convert) dataset    
-
+    let (to,from, doubleDataSet) = convertToDouble dataset 
     (m,svm) <- trainSVM (generalizeClassifier ctype) kernel doubleDataSet
     return . (m,) $ SVMClassifier svm to from
+
+convertToDouble dataset = let 
+        l = zip (nub . map fst $ dataset) [1..]
+        to   = Map.fromList l
+        from = Map.fromList $ map swap l
+        in  (to,from, map ((to Map.!) *** convert) dataset)    
+
+-- | Perform n-foldl cross validation for given set of SVM parameters
+crossvalidateClassifier :: (SVMVector b, Ord a) =>
+     ClassifierType -> Kernel -> Int -> [(a, b)] 
+     -> (String, [a])
+crossvalidateClassifier ctype kernel folds dataset = unsafePerformIO $ do
+    let (to,from, doubleDataSet) = convertToDouble dataset 
+    (m,res :: [Double]) <- crossvalidate (generalizeClassifier ctype) kernel folds doubleDataSet
+    return . (m,) $ map (from Map.!) res
    where 
     labels = map fst
 
@@ -148,7 +158,6 @@ classify (SVMClassifier svm to from) vector = from Map.! predict svm vector
 trainOneClass :: SVMVector a => Double -> Kernel -> [a] -> (String, SVMOneClass)
 trainOneClass nu kernel dataset = unsafePerformIO $ do
     let  doubleDataSet =  map (const 1 &&& convert) dataset    
-
     (m,svm) <- trainSVM (ONE_CLASS nu) kernel doubleDataSet
     return . (m,) $ SVMOneClass svm
 
@@ -171,6 +180,11 @@ trainRegressor rtype kernel dataset = unsafePerformIO $ do
     let  doubleDataSet =  map (second convert) dataset    
     (m,svm) <- trainSVM (generalizeRegressor rtype) kernel doubleDataSet
     return . (m,) $ SVMRegressor svm
+
+crossvalidateRegressor rtype kernel folds dataset = unsafePerformIO $ do
+    let  doubleDataSet =  map (second convert) dataset    
+    (m,res) <- crossvalidate (generalizeRegressor rtype) kernel folds doubleDataSet
+    return (m,res)
 
 -- | Predict value for given vector via regression
 predictRegression :: SVMVector a => SVMRegressor -> a -> Double

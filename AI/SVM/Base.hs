@@ -23,12 +23,12 @@ module AI.SVM.Base (
                   -- * Types
                    SVM
                  , SVMType(..), Kernel(..)
-		 , SVMVector(..)
+		         , SVMVector(..)
                  ,getNRClasses
                   -- * File operations
                  ,loadSVM, saveSVM
                   -- * Training
-                 ,trainSVM --, crossvalidate
+                 ,trainSVM, crossvalidate
                   -- * Prediction
                  ,predict
                  )  where
@@ -331,7 +331,6 @@ trainSVM svm kernel (map (second convert) -> dataSet) = do
 
 -- |Cross validate SVM. This is faster than training and predicting for each fold
 --  separately, since there are no extra conversions done between libsvm and haskell.
---  Currently broken.
 crossvalidate
   :: (SVMVector b) => SVMType -> Kernel -> Int -> [(Double, b)] -> IO (String, [Double])
 crossvalidate svm kernel folds (map (second convert) -> dataSet) = do
