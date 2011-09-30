@@ -63,31 +63,31 @@ import qualified Foreign.Concurrent as C
 import AI.SVM.Common
 
 class SVMVector a where
-    convert :: a -> V.Vector Double
+    convert :: a -> V.Vector C'svm_node
 
-instance SVMVector (V.Vector Double) where
+instance SVMVector (V.Vector C'svm_node) where
     convert = id
 
+instance SVMVector (V.Vector Double) where
+    convert = convertDense 
+
 instance SVMVector (GV.Vector Double) where
-    convert = GV.convert
+    convert = convertDense . GV.convert
 
 instance SVMVector [Double] where
-    convert = V.fromList
+    convert = convertDense . V.fromList
 
 instance SVMVector (Double,Double) where
-    convert (a,b) = V.fromList [a,b]
+    convert (a,b) = convertDense .  V.fromList $ [a,b]
 
 instance SVMVector (Double,Double,Double) where
-    convert (a,b,c) = V.fromList [a,b,c]
+    convert (a,b,c) = convertDense . V.fromList $ [a,b,c]
 
 instance SVMVector (Double,Double,Double,Double) where
-    convert (a,b,c,d) = V.fromList [a,b,c,d]
+    convert (a,b,c,d) = convertDense . V.fromList $ [a,b,c,d]
 
 instance SVMVector (Double,Double,Double,Double,Double) where
-    convert (a,b,c,d,e) = V.fromList [a,b,c,d,e]
-
-
-
+    convert (a,b,c,d,e) = convertDense . V.fromList $ [a,b,c,d,e]
 
 {-# SPECIALIZE convertDense :: V.Vector Double -> V.Vector C'svm_node #-}
 {-# SPECIALIZE convertDense :: V.Vector Float -> V.Vector C'svm_node #-}
@@ -114,7 +114,7 @@ createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
                           | idx <- scanl (+) 0 lengths]
         y   = map (realToFrac . fst)  v
         xs  = concatMap (V.toList . extractSvmNode . snd) v
-        extractSvmNode x = convertDense $ V.generate (V.length x) (x !)
+        extractSvmNode x = x --convertDense $ V.generate (V.length x) (x !)
 
 deleteProblem (C'svm_problem l class_array offset_array , node_array) =
     free class_array >> free offset_array >> free node_array 
@@ -171,10 +171,10 @@ getNRClasses (getModelPtr -> fptr)
 -- | Predict the class of a vector with an SVM.
 predict :: (SVMVector a) => SVM -> a -> Double
 predict (getModelPtr -> fptr) 
-        (convert -> vec) = unsafePerformIO $
+        (convert -> nodes) = unsafePerformIO $
                            withForeignPtr fptr $ \modelPtr -> 
-                           let nodes = convertDense vec
-                           in realToFrac <$> V.unsafeWith nodes 
+                           --let nodes = convertDense vec
+                           realToFrac <$> V.unsafeWith nodes 
                                              (c'svm_predict modelPtr)
 
 defaultParamers = C'svm_parameter {
