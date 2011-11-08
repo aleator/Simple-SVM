@@ -57,6 +57,6 @@ library
     bindings-svm >= 0.2.0 && < 0.3,
     binary       >= 0.5 && < 0.6,
     mwc-random   >= 0.8 && < 0.9,
-    vector       >= 0.7.0.1 && < 0.8,
+    vector       >= 0.7.0.1 && < 1.1,
     directory    >= 1.1.0.0 && < 1.2,
     containers   >= 0.4.0.0 && < 0.5
