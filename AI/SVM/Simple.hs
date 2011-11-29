@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, TupleSections, ViewPatterns,
-             RecordWildCards, FlexibleInstances #-}
+             RecordWildCards, FlexibleInstances, ForeignFunctionInterface #-}
 -------------------------------------------------------------------------------
 -- |
 -- Module     : Bindings.SVM
@@ -60,6 +60,7 @@ import System.Directory
 import System.IO.Unsafe
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as Map
+import Foreign.C.Types (CInt)
 import AI.SVM.Common
 
 
@@ -67,11 +68,13 @@ import AI.SVM.Common
 data ClassifierType =
                C  {cost :: Double}
               | NU {cost :: Double, nu :: Double}
+              deriving (Show)
 
 -- | Supported SVM regression machines
 data RegressorType =
                Epsilon  Double Double
               | NU_r     Double Double
+              deriving (Show)
 
 data SVMClassifier a = SVMClassifier SVM (Map a Double) (Map Double a)
 newtype SVMRegressor  = SVMRegressor SVM 
@@ -123,9 +126,9 @@ instance Persisting SVMOneClass where
 -- | Train an SVM classifier of given type. 
 trainClassifier
   :: (SVMVector b, Ord a) =>
-     ClassifierType
-     -> Kernel
-     -> [(a, b)]
+     ClassifierType -- ^ The type of the classifier
+     -> Kernel      -- ^ Kernel
+     -> [(a, b)]    -- ^ Training data
      -> (String, SVMClassifier a)
 trainClassifier ctype kernel dataset = unsafePerformIO $ do
     let (to,from, doubleDataSet) = convertToDouble dataset 
@@ -140,10 +143,15 @@ convertToDouble dataset = let
 
 -- | Perform n-foldl cross validation for given set of SVM parameters
 crossvalidateClassifier :: (SVMVector b, Ord a) =>
-     ClassifierType -> Kernel -> Int -> [(a, b)] 
+     ClassifierType   -- ^ The type of classifier
+     -> Kernel        -- ^ Classifier kernel 
+     -> Int           -- ^ Number of folds to use
+     -> [(a, b)]      -- ^ Dataset
+     -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
      -> (String, [a])
-crossvalidateClassifier ctype kernel folds dataset = unsafePerformIO $ do
+crossvalidateClassifier ctype kernel folds dataset seed = unsafePerformIO $ do
     let (to,from, doubleDataSet) = convertToDouble dataset 
+    c_srand (fromIntegral seed)
     (m,res :: [Double]) <- crossvalidate (generalizeClassifier ctype) kernel folds doubleDataSet
     return . (m,) $ map (from Map.!) res
    where 
@@ -181,8 +189,16 @@ trainRegressor rtype kernel dataset = unsafePerformIO $ do
     (m,svm) <- trainSVM (generalizeRegressor rtype) kernel doubleDataSet
     return . (m,) $ SVMRegressor svm
 
-crossvalidateRegressor rtype kernel folds dataset = unsafePerformIO $ do
+crossvalidateRegressor :: (SVMVector b) =>
+     RegressorType    -- ^ The type of the regressor
+     -> Kernel        -- ^ Kernel 
+     -> Int           -- ^ Number of folds to use
+     -> [(Double, b)]      -- ^ Dataset
+     -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
+     -> (String, [Double])
+crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
     let  doubleDataSet =  map (second convert) dataset    
+    c_srand (fromIntegral seed)
     (m,res) <- crossvalidate (generalizeRegressor rtype) kernel folds doubleDataSet
     return (m,res)
 
@@ -190,4 +206,5 @@ crossvalidateRegressor rtype kernel folds dataset = unsafePerformIO $ do
 predictRegression :: SVMVector a => SVMRegressor -> a -> Double
 predictRegression (SVMRegressor svm) (convert -> v) = predict svm v
                          
+foreign import ccall "srand" c_srand :: CInt -> IO ()
 
