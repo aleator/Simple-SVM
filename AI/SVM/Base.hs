@@ -24,6 +24,8 @@ module AI.SVM.Base (
                    SVM
                  , SVMType(..), Kernel(..)
 		         , SVMVector(..)
+                 , SVMNodes
+                   
                  ,getNRClasses
                   -- * File operations
                  ,loadSVM, saveSVM
@@ -33,6 +35,7 @@ module AI.SVM.Base (
                  ,predict
                  )  where
 
+import AI.SVM.Common
 import Bindings.SVM
 import Control.Applicative
 import Control.Arrow (first, second, (***), (&&&))
@@ -55,15 +58,20 @@ import Foreign.Storable
 import System.Directory
 import System.IO.Error
 import System.IO.Unsafe
+import Unsafe.Coerce
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as Map
 import qualified Data.Vector as GV
 import qualified Data.Vector.Storable as V
 import qualified Foreign.Concurrent as C
-import AI.SVM.Common
 
+-- | Intermediary type for interfacing with libsvm. If you need to repeatedly train with the same training data,
+--  consider using this type for the training. It is slightly faster and allocates a bit less
+type SVMNodes = V.Vector C'svm_node
+
+-- | Class of things that can be interpreted as training vectors for svm. 
 class SVMVector a where
-    convert :: a -> V.Vector C'svm_node
+    convert :: a -> SVMNodes
 
 instance SVMVector (V.Vector C'svm_node) where
     convert = id
@@ -89,14 +97,16 @@ instance SVMVector (Double,Double,Double,Double) where
 instance SVMVector (Double,Double,Double,Double,Double) where
     convert (a,b,c,d,e) = convertDense . V.fromList $ [a,b,c,d,e]
 
-{-# SPECIALIZE convertDense :: V.Vector Double -> V.Vector C'svm_node #-}
-{-# SPECIALIZE convertDense :: V.Vector Float -> V.Vector C'svm_node #-}
-convertDense :: (V.Storable a, Real a) => V.Vector a -> V.Vector C'svm_node
+convertDense :: V.Vector Double -> V.Vector C'svm_node
 convertDense v = V.generate (dim+1) readVal
     where
         dim = V.length v
         readVal !n | n >= dim = C'svm_node (-1) 0
-        readVal !n = C'svm_node (fromIntegral n+1) (realToFrac $ v ! n)
+        readVal !n = C'svm_node (fromIntegral n+1) (double2CDouble $ v ! n)
+
+{-#INLINE double2CDouble #-}
+double2CDouble :: Double -> CDouble
+double2CDouble = unsafeCoerce
 
 createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
                     node_array <- newArray xs
@@ -113,8 +123,7 @@ createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
                           [addr `plusPtr` (idx * sizeOf (C'svm_node undefined undefined)) 
                           | idx <- scanl (+) 0 lengths]
         y   = map (realToFrac . fst)  v
-        xs  = concatMap (V.toList . extractSvmNode . snd) v
-        extractSvmNode x = x --convertDense $ V.generate (V.length x) (x !)
+        xs  = concatMap (V.toList . snd) v
 
 deleteProblem (C'svm_problem l class_array offset_array , node_array) =
     free class_array >> free offset_array >> free node_array 
@@ -169,11 +178,11 @@ getNRClasses (getModelPtr -> fptr)
     = fromIntegral <$>  withForeignPtr fptr c'svm_get_nr_class
 
 -- | Predict the class of a vector with an SVM.
+{-#SPECIALIZE predict :: SVM -> SVMNodes -> Double #-}
 predict :: (SVMVector a) => SVM -> a -> Double
 predict (getModelPtr -> fptr) 
         (convert -> nodes) = unsafePerformIO $
                            withForeignPtr fptr $ \modelPtr -> 
-                           --let nodes = convertDense vec
                            realToFrac <$> V.unsafeWith nodes 
                                              (c'svm_predict modelPtr)
 
@@ -312,6 +321,7 @@ foreign import ccall "wrapper"
   wrapPrintF :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
 -- |Create an SVM from the training data
+{-#SPECIALIZE trainSVM :: SVMType -> Kernel -> [(Double,SVMNodes)] -> IO (String,SVM) #-}
 trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Double, a)] -> IO (String, SVM)
 trainSVM svm kernel (map (second convert) -> dataSet) = do
     messages <- newIORef []
@@ -331,6 +341,7 @@ trainSVM svm kernel (map (second convert) -> dataSet) = do
 
 -- |Cross validate SVM. This is faster than training and predicting for each fold
 --  separately, since there are no extra conversions done between libsvm and haskell.
+{-#SPECIALIZE crossvalidate :: SVMType -> Kernel -> Int -> [(Double,SVMNodes)] -> IO (String,[Double]) #-}
 crossvalidate
   :: (SVMVector b) => SVMType -> Kernel -> Int -> [(Double, b)] -> IO (String, [Double])
 crossvalidate svm kernel folds (map (second convert) -> dataSet) = do
