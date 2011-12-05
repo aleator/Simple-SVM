@@ -108,7 +108,7 @@ createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
                            ,node_array) 
     where 
         dim = length v
-        lengths = map ((+1) . V.length . snd) v
+        lengths = map (V.length . snd) v
         offsetPtrs addr = take dim 
                           [addr `plusPtr` (idx * sizeOf (C'svm_node undefined undefined)) 
                           | idx <- scanl (+) 0 lengths]
