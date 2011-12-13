@@ -186,7 +186,7 @@ predict (getModelPtr -> fptr)
                            realToFrac <$> V.unsafeWith nodes 
                                              (c'svm_predict modelPtr)
 
-defaultParamers = C'svm_parameter {
+defaultParameters = C'svm_parameter {
       c'svm_parameter'svm_type = c'C_SVC
     , c'svm_parameter'kernel_type = c'LINEAR
     , c'svm_parameter'degree = 3
@@ -212,40 +212,40 @@ instance Binary CDouble where
     put cint = put (realToFrac cint :: Double)
     get = realToFrac <$> (get :: Get Double) 
 
-encodeParams C'svm_parameter{..} = do
-    put c'svm_parameter'svm_type 
-    put c'svm_parameter'kernel_type 
-    put c'svm_parameter'degree 
-    put c'svm_parameter'gamma  
-    put c'svm_parameter'coef0  
-    put c'svm_parameter'cache_size 
-    put c'svm_parameter'eps 
-    put c'svm_parameter'C   
-    put c'svm_parameter'nr_weight 
-    --put c'svm_parameter'weight_label = nullPtr
-    --put c'svm_parameter'weight       = nullPtr
-    put c'svm_parameter'nu 
-    put c'svm_parameter'p  
-    put c'svm_parameter'shrinking
-    put c'svm_parameter'probability 
+--encodeParams C'svm_parameter{..} = do
+--    put c'svm_parameter'svm_type 
+--    put c'svm_parameter'kernel_type 
+--    put c'svm_parameter'degree 
+--    put c'svm_parameter'gamma  
+--    put c'svm_parameter'coef0  
+--    put c'svm_parameter'cache_size 
+--    put c'svm_parameter'eps 
+--    put c'svm_parameter'C   
+--    put c'svm_parameter'nr_weight 
+--    --put c'svm_parameter'weight_label = nullPtr
+--    --put c'svm_parameter'weight       = nullPtr
+--    put c'svm_parameter'nu 
+--    put c'svm_parameter'p  
+--    put c'svm_parameter'shrinking
+--    put c'svm_parameter'probability 
 
-decodeParams b = do     
-    c'svm_parameter'svm_type <- get
-    c'svm_parameter'kernel_type <- get
-    c'svm_parameter'degree      <- get   
-    c'svm_parameter'gamma       <- get 
-    c'svm_parameter'coef0       <- get
-    c'svm_parameter'cache_size  <- get 
-    c'svm_parameter'eps         <- get
-    c'svm_parameter'C           <- get
-    c'svm_parameter'nr_weight   <- get
-    c'svm_parameter'nu          <- get
-    c'svm_parameter'p           <- get
-    c'svm_parameter'shrinking   <- get
-    c'svm_parameter'probability <- get
-    let c'svm_parameter'weight_label = nullPtr
-        c'svm_parameter'weight = nullPtr
-    return C'svm_parameter{..}
+--decodeParams b = do     
+--    c'svm_parameter'svm_type <- get
+--    c'svm_parameter'kernel_type <- get
+--    c'svm_parameter'degree      <- get   
+--    c'svm_parameter'gamma       <- get 
+--    c'svm_parameter'coef0       <- get
+--    c'svm_parameter'cache_size  <- get 
+--    c'svm_parameter'eps         <- get
+--    c'svm_parameter'C           <- get
+--    c'svm_parameter'nr_weight   <- get
+--    c'svm_parameter'nu          <- get
+--    c'svm_parameter'p           <- get
+--    c'svm_parameter'shrinking   <- get
+--    c'svm_parameter'probability <- get
+--    let c'svm_parameter'weight_label = nullPtr
+--        c'svm_parameter'weight = nullPtr
+--    return C'svm_parameter{..}
 
                    
      
@@ -304,11 +304,21 @@ setTypeParameters (NU_SVR {..}) p    = p{c'svm_parameter'C=rf cost_
                                         ,c'svm_parameter'svm_type=c'NU_SVR}
 
 
-setParameters svm kernel = parameters
-    where 
+withParameters svm kernel ws op = do
+    ptr_parameters <- malloc 
+    weight_labels  <- newArray (map (fromIntegral.fst) ws)
+    weights        <- newArray (map (double2CDouble.snd) ws)
+    let no_weights = fromIntegral $ length ws
+    poke ptr_parameters parameters{c'svm_parameter'weight_label=weight_labels,c'svm_parameter'weight=weights,c'svm_parameter'nr_weight=no_weights}
+    r <- op ptr_parameters
+    free ptr_parameters 
+    free weights
+    free weight_labels
+    return r
+   where 
         parameters = setTypeParameters svm 
                      . setKernelParameters kernel 
-                     $ defaultParamers
+                     $ defaultParameters
 
 -- Other params that currently cannot be passed:
 -- epsilon -- termination 0.001
@@ -321,23 +331,23 @@ foreign import ccall "wrapper"
   wrapPrintF :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
 -- |Create an SVM from the training data
-{-#SPECIALIZE trainSVM :: SVMType -> Kernel -> [(Double,SVMNodes)] -> IO (String,SVM) #-}
-trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Double, a)] -> IO (String, SVM)
-trainSVM svm kernel (map (second convert) -> dataSet) = do
+trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Int,Double)] -> [(Double, a)] -> IO (String, SVM)
+trainSVM svm kernel ws (map (second convert) -> dataSet) = do
     messages <- newIORef []
     let append x = modifyIORef messages (x:)
     pf <- wrapPrintF (peekCString >=> append) 
     c'svm_set_print_string_function pf
     (problem, ptr_nodes) <- createProblem dataSet
-    ptr_parameters <- malloc 
-    poke ptr_parameters (setParameters svm kernel)
-    modelPtr <- with problem $ \ptr_problem -> 
-                  c'svm_train ptr_problem ptr_parameters
-    message  <- unlines . reverse <$> readIORef messages 
-    (message ,) . SVM  <$> C.newForeignPtr modelPtr 
-                    (free ptr_parameters
-                     >>deleteProblem (problem, ptr_nodes)
-                     >>modelFinalizer modelPtr) 
+    --ptr_parameters <- malloc 
+    --poke ptr_parameters (setParameters svm kernel)
+    withParameters svm kernel ws $ \ptr_parameters -> do
+        modelPtr <- with problem $ \ptr_problem -> 
+                      c'svm_train ptr_problem ptr_parameters
+        message  <- unlines . reverse <$> readIORef messages 
+        (message ,) . SVM  <$> C.newForeignPtr modelPtr 
+                        (--free ptr_parameters
+                         deleteProblem (problem, ptr_nodes)
+                         >>modelFinalizer modelPtr) 
 
 -- |Cross validate SVM. This is faster than training and predicting for each fold
 --  separately, since there are no extra conversions done between libsvm and haskell.
@@ -353,20 +363,21 @@ crossvalidate svm kernel folds (map (second convert) -> dataSet) = do
           -- be returned from this function.
     c'svm_set_print_string_function pf
     (problem, ptr_nodes) <- createProblem dataSet
-    ptr_parameters <- malloc 
-    poke ptr_parameters (setParameters svm kernel)
-    
-    result_ptr :: Ptr CDouble <- mallocArray (length dataSet)
+    withParameters svm kernel [] $ \ptr_parameters-> do
+        -- ptr_parameters <- malloc 
+        -- poke ptr_parameters (setParameters svm kernel)
+        
+        result_ptr :: Ptr CDouble <- mallocArray (length dataSet)
 
-    with problem $ \ptr_problem -> 
-         c'svm_cross_validation ptr_problem ptr_parameters (fromIntegral folds) result_ptr  
+        with problem $ \ptr_problem -> 
+             c'svm_cross_validation ptr_problem ptr_parameters (fromIntegral folds) result_ptr  
 
-    res <- peekArray (length dataSet) result_ptr
-    message  <- unlines . reverse <$> readIORef messages 
+        res <- peekArray (length dataSet) result_ptr
+        message  <- unlines . reverse <$> readIORef messages 
 
-    free result_ptr >> free ptr_parameters >> deleteProblem (problem,ptr_nodes)
+        free result_ptr >> deleteProblem (problem,ptr_nodes)
 
-    return (message,map realToFrac res)
+        return (message,map realToFrac res)
 
 
 

@@ -19,15 +19,15 @@ main = do
                         ]
     let (m,svm2) = trainClassifier (C 1) (RBF 4) trainingData
     let plot = 
-               (circle # fc green # scale 5 )
+               (circle # fc green # scale 5 5 )
                `atop` 
-               (circle # fc green # scale 5
-               `atop` circle # scale 100 # lineWidth 5) # translate (200,200) 
+               (circle # fc green # scale 5 5
+               `atop` circle # scale 100 100 # lineWidth 5) # translate (200,200) 
                `atop` 
-               (circle # fc green # scale 5 # translate (400,400) )
+               (circle # fc green # scale 5 5 # translate (400,400) )
                `atop` 
-               foldl (atop) (circle # scale 1)
-               [circle # scale 5 # translate (400*x,400*y) # fc (color svm2 (x,y))
+               foldl (atop) (circle # scale 1 1)
+               [circle # scale 5 5 # translate (400*x,400*y) # fc (color svm2 (x,y))
                | x <- [0,0.025..1], y <- [0,0.025..1]] 
     fst $ renderDia Cairo (CairoOptions ("test.png") (PNG (400,400))) plot
   where

@@ -132,7 +132,7 @@ trainClassifier
      -> (String, SVMClassifier a)
 trainClassifier ctype kernel dataset = unsafePerformIO $ do
     let (to,from, doubleDataSet) = convertToDouble dataset 
-    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel doubleDataSet
+    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
 convertToDouble dataset = let 
@@ -166,7 +166,7 @@ classify (SVMClassifier svm to from) vector = from Map.! predict svm vector
 trainOneClass :: SVMVector a => Double -> Kernel -> [a] -> (String, SVMOneClass)
 trainOneClass nu kernel dataset = unsafePerformIO $ do
     let  doubleDataSet =  map (const 1 &&& convert) dataset    
-    (m,svm) <- trainSVM (ONE_CLASS nu) kernel doubleDataSet
+    (m,svm) <- trainSVM (ONE_CLASS nu) kernel [] doubleDataSet
     return . (m,) $ SVMOneClass svm
 
 -- | The result type of one class svm. The prediction is that point is either `In`the
@@ -186,7 +186,7 @@ trainRegressor
 
 trainRegressor rtype kernel dataset = unsafePerformIO $ do
     let  doubleDataSet =  map (second convert) dataset    
-    (m,svm) <- trainSVM (generalizeRegressor rtype) kernel doubleDataSet
+    (m,svm) <- trainSVM (generalizeRegressor rtype) kernel [] doubleDataSet
     return . (m,) $ SVMRegressor svm
 
 crossvalidateRegressor :: (SVMVector b) =>
