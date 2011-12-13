@@ -39,7 +39,7 @@ module AI.SVM.Simple (
                  ,Kernel(..)
                  ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
-                 ,trainClassifier, crossvalidateClassifier, classify   
+                 ,trainClassifier, trainWtdClassifier,  crossvalidateClassifier, classify   
 		 -- * One class machines
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
@@ -50,7 +50,7 @@ module AI.SVM.Simple (
 
 import AI.SVM.Base
 import Control.Applicative
-import Control.Arrow (second, (***), (&&&))
+import Control.Arrow (first, second, (***), (&&&))
 import Control.Monad
 import Data.Binary
 import Data.List
@@ -132,6 +132,21 @@ trainClassifier
      -> (String, SVMClassifier a)
 trainClassifier ctype kernel dataset = unsafePerformIO $ do
     let (to,from, doubleDataSet) = convertToDouble dataset 
+    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
+    return . (m,) $ SVMClassifier svm to from
+
+-- | Train an SVM classifier of given type. 
+trainWtdClassifier
+  :: (SVMVector b, Ord a) =>
+     ClassifierType -- ^ The type of the classifier
+     -> Kernel      -- ^ Kernel
+     -> [(a, Double)]    -- ^ Training weights
+     -> [(a, b)]    -- ^ Training data
+     -> (String, SVMClassifier a)
+trainWtdClassifier ctype kernel ws dataset = unsafePerformIO $ do
+    let (to,from, doubleDataSet) = convertToDouble dataset 
+        cw = map (first conv) ws
+        conv i = round $ to Map.! i
     (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
