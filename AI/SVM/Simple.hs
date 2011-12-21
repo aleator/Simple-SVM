@@ -49,19 +49,22 @@ module AI.SVM.Simple (
                  )  where
 
 import AI.SVM.Base
+import AI.SVM.Common
 import Control.Applicative
 import Control.Arrow (first, second, (***), (&&&))
 import Control.Monad
 import Data.Binary
+import qualified Data.Foldable as F
+import Data.Foldable (Foldable)
 import Data.List
 import Data.Map (Map)
 import Data.Tuple
+import Foreign.C.Types (CInt)
 import System.Directory
+import Data.Monoid
 import System.IO.Unsafe
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Map as Map
-import Foreign.C.Types (CInt)
-import AI.SVM.Common
 
 
 -- | Supported SVM classifiers
@@ -125,29 +128,29 @@ instance Persisting SVMOneClass where
 
 -- | Train an SVM classifier of given type. 
 trainClassifier
-  :: (SVMVector b, Ord a) =>
+  :: (SVMVector b, Ord a, Foldable f) =>
      ClassifierType -- ^ The type of the classifier
      -> Kernel      -- ^ Kernel
-     -> [(a, b)]    -- ^ Training data
+     -> f (a, b)    -- ^ Training data
      -> (String, SVMClassifier a)
 trainClassifier ctype kernel dataset = unsafePerformIO $ do
-    let (to,from, doubleDataSet) = convertToDouble dataset 
+    let (to,from, doubleDataSet) = convertToDouble (F.toList dataset)
     (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
 -- | Train an SVM classifier of given type. 
 trainWtdClassifier
-  :: (SVMVector b, Ord a) =>
+  :: (Foldable f, SVMVector b, Ord a) =>
      ClassifierType -- ^ The type of the classifier
      -> Kernel      -- ^ Kernel
-     -> [(a, Double)]    -- ^ Training weights
-     -> [(a, b)]    -- ^ Training data
+     -> f (a, Double)    -- ^ Training weights
+     -> f (a, b)    -- ^ Training data
      -> (String, SVMClassifier a)
 trainWtdClassifier ctype kernel ws dataset = unsafePerformIO $ do
-    let (to,from, doubleDataSet) = convertToDouble dataset 
-        cw = map (first conv) ws
+    let (to,from, doubleDataSet) = convertToDouble (F.toList dataset)
+        cw = map (first conv) (F.toList ws)
         conv i = round $ to Map.! i
-    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
+    (m,svm) <- trainSVM (generalizeClassifier ctype) kernel cw doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
 convertToDouble dataset = let 
@@ -157,15 +160,15 @@ convertToDouble dataset = let
         in  (to,from, map ((to Map.!) *** convert) dataset)    
 
 -- | Perform n-foldl cross validation for given set of SVM parameters
-crossvalidateClassifier :: (SVMVector b, Ord a) =>
+crossvalidateClassifier :: (Foldable f, SVMVector b, Ord a) =>
      ClassifierType   -- ^ The type of classifier
      -> Kernel        -- ^ Classifier kernel 
      -> Int           -- ^ Number of folds to use
-     -> [(a, b)]      -- ^ Dataset
+     -> f (a, b)      -- ^ Dataset
      -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
      -> (String, [a])
 crossvalidateClassifier ctype kernel folds dataset seed = unsafePerformIO $ do
-    let (to,from, doubleDataSet) = convertToDouble dataset 
+    let (to,from, doubleDataSet) = convertToDouble (F.toList dataset)
     c_srand (fromIntegral seed)
     (m,res :: [Double]) <- crossvalidate (generalizeClassifier ctype) kernel folds doubleDataSet
     return . (m,) $ map (from Map.!) res
@@ -196,23 +199,23 @@ inSet (SVMOneClass svm) vector = if predict svm vector <0
 
 -- | Train an SVM regression machine
 trainRegressor
-  :: (SVMVector b') =>
-     RegressorType -> Kernel -> [(Double, b')] -> (String, SVMRegressor)
+  :: (Foldable f,  Functor f, SVMVector b') =>
+     RegressorType -> Kernel -> f (Double, b') -> (String, SVMRegressor)
 
 trainRegressor rtype kernel dataset = unsafePerformIO $ do
-    let  doubleDataSet =  map (second convert) dataset    
+    let  doubleDataSet =  fmap (second convert) (F.toList dataset)
     (m,svm) <- trainSVM (generalizeRegressor rtype) kernel [] doubleDataSet
     return . (m,) $ SVMRegressor svm
 
-crossvalidateRegressor :: (SVMVector b) =>
+crossvalidateRegressor :: (Foldable f, SVMVector b) =>
      RegressorType    -- ^ The type of the regressor
      -> Kernel        -- ^ Kernel 
      -> Int           -- ^ Number of folds to use
-     -> [(Double, b)]      -- ^ Dataset
+     -> f (Double, b)      -- ^ Dataset
      -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
      -> (String, [Double])
 crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
-    let  doubleDataSet =  map (second convert) dataset    
+    let  doubleDataSet =  map (second convert) (F.toList dataset)  
     c_srand (fromIntegral seed)
     (m,res) <- crossvalidate (generalizeRegressor rtype) kernel folds doubleDataSet
     return (m,res)

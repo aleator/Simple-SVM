@@ -42,6 +42,7 @@ import Control.Arrow (first, second, (***), (&&&))
 import Control.Exception 
 import Control.Monad
 import Data.Binary
+import Data.Foldable(Foldable)
 import Data.IORef
 import Data.List
 import Data.Map (Map)
@@ -60,6 +61,7 @@ import System.IO.Error
 import System.IO.Unsafe
 import Unsafe.Coerce
 import qualified Data.ByteString.Lazy as B
+import qualified Data.Foldable as F
 import qualified Data.Map as Map
 import qualified Data.Vector as GV
 import qualified Data.Vector.Storable as V
@@ -122,7 +124,7 @@ createProblem v = do -- #TODO Check the problem dimension. Libsvm doesn't
         offsetPtrs addr = take dim 
                           [addr `plusPtr` (idx * sizeOf (C'svm_node undefined undefined)) 
                           | idx <- scanl (+) 0 lengths]
-        y   = map (realToFrac . fst)  v
+        y   = map (double2CDouble . fst)  v
         xs  = concatMap (V.toList . snd) v
 
 deleteProblem (C'svm_problem l class_array offset_array , node_array) =
@@ -330,35 +332,38 @@ withParameters svm kernel ws op = do
 foreign import ccall "wrapper"
   wrapPrintF :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
+{-#RULES
+  "listToList" F.toList = id #-}
+
 -- |Create an SVM from the training data
-trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Int,Double)] -> [(Double, a)] -> IO (String, SVM)
-trainSVM svm kernel ws (map (second convert) -> dataSet) = do
+{-# SPECIALIZE trainSVM :: (SVMVector a) => SVMType -> Kernel -> [(Int,Double)] -> [(Double, a)] -> IO (String, SVM) #-}
+{-# SPECIALIZE trainSVM :: (SVMVector a) => SVMType -> Kernel -> GV.Vector (Int,Double) -> GV.Vector (Double, a) -> IO (String, SVM) #-}
+trainSVM :: (Foldable f, SVMVector a) => SVMType -> Kernel -> f (Int,Double) -> f (Double, a) -> IO (String, SVM)
+trainSVM svm kernel (F.toList -> ws) (map (second convert) . F.toList -> dataSet) = do
     messages <- newIORef []
     let append x = modifyIORef messages (x:)
     pf <- wrapPrintF (peekCString >=> append) 
+
     c'svm_set_print_string_function pf
     (problem, ptr_nodes) <- createProblem dataSet
-    --ptr_parameters <- malloc 
-    --poke ptr_parameters (setParameters svm kernel)
     withParameters svm kernel ws $ \ptr_parameters -> do
         modelPtr <- with problem $ \ptr_problem -> 
                       c'svm_train ptr_problem ptr_parameters
         message  <- unlines . reverse <$> readIORef messages 
         (message ,) . SVM  <$> C.newForeignPtr modelPtr 
-                        (--free ptr_parameters
-                         deleteProblem (problem, ptr_nodes)
+                        (deleteProblem (problem, ptr_nodes)
                          >>modelFinalizer modelPtr) 
 
 -- |Cross validate SVM. This is faster than training and predicting for each fold
 --  separately, since there are no extra conversions done between libsvm and haskell.
 {-#SPECIALIZE crossvalidate :: SVMType -> Kernel -> Int -> [(Double,SVMNodes)] -> IO (String,[Double]) #-}
+{-#SPECIALIZE crossvalidate :: SVMType -> Kernel -> Int -> GV.Vector (Double,SVMNodes) -> IO (String,[Double]) #-}
 crossvalidate
-  :: (SVMVector b) => SVMType -> Kernel -> Int -> [(Double, b)] -> IO (String, [Double])
-crossvalidate svm kernel folds (map (second convert) -> dataSet) = do
+  :: (Foldable f, SVMVector b) => SVMType -> Kernel -> Int -> f (Double, b) -> IO (String, [Double])
+crossvalidate svm kernel folds (map (second convert) . F.toList -> dataSet) = do
     messages <- newIORef []
     let append x = modifyIORef messages (x:)
     pf <- wrapPrintF (peekCString >=> append) 
-          -- The above is just a test. Realistically at that point there
           -- should be an ioref that captures the output which would then
           -- be returned from this function.
     c'svm_set_print_string_function pf
