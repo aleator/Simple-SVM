@@ -52,18 +52,19 @@ import AI.SVM.Base
 import AI.SVM.Common
 import Control.Applicative
 import Control.Arrow (first, second, (***), (&&&))
+import Control.DeepSeq
 import Control.Monad
 import Data.Binary
-import qualified Data.Foldable as F
 import Data.Foldable (Foldable)
 import Data.List
 import Data.Map (Map)
+import Data.Monoid
 import Data.Tuple
 import Foreign.C.Types (CInt)
 import System.Directory
-import Data.Monoid
 import System.IO.Unsafe
 import qualified Data.ByteString.Lazy as B
+import qualified Data.Foldable as F
 import qualified Data.Map as Map
 
 
@@ -82,6 +83,10 @@ data RegressorType =
 data SVMClassifier a = SVMClassifier SVM (Map a Double) (Map Double a)
 newtype SVMRegressor  = SVMRegressor SVM 
 newtype SVMOneClass   = SVMOneClass SVM 
+
+
+instance NFData a => NFData (SVMClassifier a) where
+    rnf (SVMClassifier fp m1 m2) = m1 `deepseq` m2 `seq` ()
 
 instance (Ord a, Binary a) => Binary (SVMClassifier a) where
     put (SVMClassifier svm a b) = put svm >> put a >> put b

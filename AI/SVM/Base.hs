@@ -362,16 +362,11 @@ crossvalidate
   :: (Foldable f, SVMVector b) => SVMType -> Kernel -> Int -> f (Double, b) -> IO (String, [Double])
 crossvalidate svm kernel folds (map (second convert) . F.toList -> dataSet) = do
     messages <- newIORef []
-    let append x = modifyIORef messages (x:)
+    let append x = return ()-- modifyIORef messages (x:)
     pf <- wrapPrintF (peekCString >=> append) 
-          -- should be an ioref that captures the output which would then
-          -- be returned from this function.
     c'svm_set_print_string_function pf
     (problem, ptr_nodes) <- createProblem dataSet
     withParameters svm kernel [] $ \ptr_parameters-> do
-        -- ptr_parameters <- malloc 
-        -- poke ptr_parameters (setParameters svm kernel)
-        
         result_ptr :: Ptr CDouble <- mallocArray (length dataSet)
 
         with problem $ \ptr_problem -> 
