@@ -12,7 +12,7 @@
 -- Notes : The module is currently not robust to inputs of wrong dimensionality
 --         and is affected by security risks inherent in libsvm model loading.
 --
--- Important TODO-items: 
+-- Important TODO-items:
 --  * Handle the issue of crashing the system by passing vectors of dimension to the SVMs
 --  * Split this library into high and low level parts
 --  * Saving and loading SVMs
@@ -20,7 +20,7 @@
 -------------------------------------------------------------------------------
 -- This module presents a high level interface for libsvm toolkit. There are three
 -- main uses cases for it:
---  
+--
 --  1. You have vectors of reals associated with labels and you wish to assign labels
 --     to unlabeled vectors. (Classifier machines)
 --
@@ -39,12 +39,12 @@ module AI.SVM.Simple (
                  ,Kernel(..)
                  ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
-                 ,trainClassifier, trainWtdClassifier,  crossvalidateClassifier, classify   
+                 ,trainClassifier, trainWtdClassifier,  crossvalidateClassifier, classify
 		 -- * One class machines
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
                  ,trainRegressor, crossvalidateRegressor, predictRegression
-         -- * Unfortunate utilities
+                 -- * Unfortunate utilities
                  ,Persisting(..)
                  )  where
 
@@ -56,16 +56,19 @@ import Control.DeepSeq
 import Control.Monad
 import Data.Binary
 import Data.Foldable (Foldable)
+import qualified Data.Foldable as F
 import Data.List
 import Data.Map (Map)
 import Data.Monoid
 import Data.Tuple
-import Foreign.C.Types (CInt)
+import Foreign.C.Types (CInt(..))
 import System.Directory
 import System.IO.Unsafe
+import Data.Function
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
 import qualified Data.Map as Map
+import qualified Control.Monad.Par as P
 
 
 -- | Supported SVM classifiers
@@ -81,8 +84,8 @@ data RegressorType =
               deriving (Show)
 
 data SVMClassifier a = SVMClassifier SVM (Map a Double) (Map Double a)
-newtype SVMRegressor  = SVMRegressor SVM 
-newtype SVMOneClass   = SVMOneClass SVM 
+newtype SVMRegressor  = SVMRegressor SVM
+newtype SVMOneClass   = SVMOneClass SVM
 
 
 instance NFData a => NFData (SVMClassifier a) where
@@ -90,7 +93,7 @@ instance NFData a => NFData (SVMClassifier a) where
 
 instance (Ord a, Binary a) => Binary (SVMClassifier a) where
     put (SVMClassifier svm a b) = put svm >> put a >> put b
-    get = SVMClassifier <$> get <*> get <*> get 
+    get = SVMClassifier <$> get <*> get <*> get
 
 instance Binary SVMRegressor where
     put (SVMRegressor r) = put r
@@ -131,7 +134,7 @@ instance Persisting SVMOneClass where
     save fp (SVMOneClass a) = saveSVM fp a
     load fp = SVMOneClass <$> loadSVM fp
 
--- | Train an SVM classifier of given type. 
+-- | Train an SVM classifier of given type.
 trainClassifier
   :: (SVMVector b, Ord a, Foldable f) =>
      ClassifierType -- ^ The type of the classifier
@@ -143,7 +146,7 @@ trainClassifier ctype kernel dataset = unsafePerformIO $ do
     (m,svm) <- trainSVM (generalizeClassifier ctype) kernel [] doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
--- | Train an SVM classifier of given type. 
+-- | Train an SVM classifier of given type.
 trainWtdClassifier
   :: (Foldable f, SVMVector b, Ord a) =>
      ClassifierType -- ^ The type of the classifier
@@ -158,16 +161,16 @@ trainWtdClassifier ctype kernel ws dataset = unsafePerformIO $ do
     (m,svm) <- trainSVM (generalizeClassifier ctype) kernel cw doubleDataSet
     return . (m,) $ SVMClassifier svm to from
 
-convertToDouble dataset = let 
+convertToDouble dataset = let
         l = zip (nub . map fst $ dataset) [1..]
         to   = Map.fromList l
         from = Map.fromList $ map swap l
-        in  (to,from, map ((to Map.!) *** convert) dataset)    
+        in  (to,from, map ((to Map.!) *** convert) dataset)
 
 -- | Perform n-foldl cross validation for given set of SVM parameters
 crossvalidateClassifier :: (Foldable f, SVMVector b, Ord a) =>
      ClassifierType   -- ^ The type of classifier
-     -> Kernel        -- ^ Classifier kernel 
+     -> Kernel        -- ^ Classifier kernel
      -> Int           -- ^ Number of folds to use
      -> f (a, b)      -- ^ Dataset
      -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
@@ -177,7 +180,7 @@ crossvalidateClassifier ctype kernel folds dataset seed = unsafePerformIO $ do
     c_srand (fromIntegral seed)
     (m,res :: [Double]) <- crossvalidate (generalizeClassifier ctype) kernel folds doubleDataSet
     return . (m,) $ map (from Map.!) res
-   where 
+   where
     labels = map fst
 
 
@@ -188,7 +191,7 @@ classify (SVMClassifier svm to from) vector = from Map.! predict svm vector
 -- | Train an one class classifier
 trainOneClass :: SVMVector a => Double -> Kernel -> [a] -> (String, SVMOneClass)
 trainOneClass nu kernel dataset = unsafePerformIO $ do
-    let  doubleDataSet =  map (const 1 &&& convert) dataset    
+    let  doubleDataSet =  map (const 1 &&& convert) dataset
     (m,svm) <- trainSVM (ONE_CLASS nu) kernel [] doubleDataSet
     return . (m,) $ SVMOneClass svm
 
@@ -198,7 +201,7 @@ data OneClassResult = Out | In deriving (Eq,Show)
 
 -- | Predict wether given point belongs to the region defined by the oneclass svm
 inSet :: SVMVector a => SVMOneClass -> a -> OneClassResult
-inSet (SVMOneClass svm) vector = if predict svm vector <0 
+inSet (SVMOneClass svm) vector = if predict svm vector <0
                                   then Out
                                   else In
 
@@ -214,20 +217,51 @@ trainRegressor rtype kernel dataset = unsafePerformIO $ do
 
 crossvalidateRegressor :: (Foldable f, SVMVector b) =>
      RegressorType    -- ^ The type of the regressor
-     -> Kernel        -- ^ Kernel 
+     -> Kernel        -- ^ Kernel
      -> Int           -- ^ Number of folds to use
      -> f (Double, b)      -- ^ Dataset
      -> Int           -- ^ Seed value. The crossvalidation randomly partitions the data into subsets using this seed value
      -> (String, [Double])
+
 crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
-    let  doubleDataSet =  map (second convert) (F.toList dataset)  
+    let  doubleDataSet =  map (second convert) (F.toList dataset)
     c_srand (fromIntegral seed)
     (m,res) <- crossvalidate (generalizeRegressor rtype) kernel folds doubleDataSet
     return (m,res)
 
+-- | Train an RBF classifier using crossvalidation and parameter grid search. This is the
+--   recommended way of building classifiers for small to medium size datasets.
+chehLin :: (Foldable f, SVMVector b, NFData a, Ord a) =>
+            f (a,b) -> IO (SVMClassifier a)
+chehLin v = do
+     let experiments = [ ResultValue c sigma acc
+                       | c <-  pows 2 (-5) 15
+                       , sigma <- pows 2 (-15) 3
+                       , let res = snd $ crossvalidateClassifier (C c) (RBF sigma) 10 listSet 1231
+                       , let acc = accuracy trainingClasses res
+                       ]
+         trainingClasses = map fst . F.toList v
+         eq = uncurry (==)
+         accuracy as bs = fromIntegral (count eq $ zip as bs) / genericLength as
+         count :: (Eq a) => (a -> Bool) -> [a] -> Int
+         count p = length . filter p
+         listSet = F.toList v
+         pows base start end = [base ** i | i <- [start..end]]
+     let (ResultValue c s a) =  maximumBy (compare `on` measure)
+                                 . P.runPar
+                                 . P.parMap id
+                                 $ experiments
+         (msg,clf) = trainClassifier (C c) (RBF s) v
+     return $!! clf
+
+data Result = ResultValue !Double !Double !Double deriving Show
+instance NFData Result
+measure (ResultValue _ _ f) = f
+
+
 -- | Predict value for given vector via regression
 predictRegression :: SVMVector a => SVMRegressor -> a -> Double
 predictRegression (SVMRegressor svm) (convert -> v) = predict svm v
-                         
+
 foreign import ccall "srand" c_srand :: CInt -> IO ()
 
