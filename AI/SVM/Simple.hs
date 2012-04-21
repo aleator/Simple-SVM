@@ -40,6 +40,7 @@ module AI.SVM.Simple (
                  ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
                  ,trainClassifier, trainWtdClassifier,  crossvalidateClassifier, classify
+                 ,chehLin
 		 -- * One class machines
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
@@ -232,7 +233,7 @@ crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
 -- | Train an RBF classifier using crossvalidation and parameter grid search. This is the
 --   recommended way of building classifiers for small to medium size datasets.
 chehLin :: (Foldable f, SVMVector b, NFData a, Ord a) =>
-            f (a,b) -> IO (SVMClassifier a)
+            f (a,b) -> IO ((Double,Double,Double),SVMClassifier a)
 chehLin v = do
      let experiments = [ ResultValue c sigma acc
                        | c <-  pows 2 (-5) 15
@@ -240,19 +241,17 @@ chehLin v = do
                        , let res = snd $ crossvalidateClassifier (C c) (RBF sigma) 10 listSet 1231
                        , let acc = accuracy trainingClasses res
                        ]
-         trainingClasses = map fst . F.toList v
+         trainingClasses = map fst . F.toList $ v
          eq = uncurry (==)
          accuracy as bs = fromIntegral (count eq $ zip as bs) / genericLength as
          count :: (Eq a) => (a -> Bool) -> [a] -> Int
          count p = length . filter p
          listSet = F.toList v
          pows base start end = [base ** i | i <- [start..end]]
-     let (ResultValue c s a) =  maximumBy (compare `on` measure)
-                                 . P.runPar
-                                 . P.parMap id
-                                 $ experiments
+     let results =  P.runPar . P.parMap id $ experiments
+         (ResultValue c s a) =  maximumBy (compare `on` measure) results
          (msg,clf) = trainClassifier (C c) (RBF s) v
-     return $!! clf
+     return $!! ((c,s,a),clf)
 
 data Result = ResultValue !Double !Double !Double deriving Show
 instance NFData Result

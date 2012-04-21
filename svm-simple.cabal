@@ -1,5 +1,5 @@
 name:                svm-simple
-version:             0.2.6.1
+version:             0.2.7
 synopsis:            Medium level, simplified, bindings to libsvm
 description:
   This is a set of simplified bindings to libsvm <http://www.csie.ntu.edu.tw/~cjlin/libsvm/> suite
