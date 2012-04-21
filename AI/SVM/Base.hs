@@ -63,6 +63,7 @@ import Unsafe.Coerce
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
 import qualified Data.Map as Map
+import qualified Data.Vector.Unboxed as UV
 import qualified Data.Vector as GV
 import qualified Data.Vector.Storable as V
 import qualified Foreign.Concurrent as C
@@ -83,6 +84,9 @@ instance SVMVector (V.Vector Double) where
 
 instance SVMVector (GV.Vector Double) where
     convert = convertDense . GV.convert
+
+instance SVMVector (UV.Vector Double) where
+    convert = convertDense . UV.convert
 
 instance SVMVector [Double] where
     convert = convertDense . V.fromList
