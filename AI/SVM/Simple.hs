@@ -40,7 +40,7 @@ module AI.SVM.Simple (
                  ,SVMOneClass(), SVMClassifier(), SVMRegressor()
 		 -- * Classifier machines
                  ,trainClassifier, trainWtdClassifier,  crossvalidateClassifier, classify
-                 ,chehLin
+                 ,chehLin, ChehLinResult(..)
 		 -- * One class machines
                  ,trainOneClass, inSet, OneClassResult(..)
 		 -- * Regression machines
@@ -57,7 +57,7 @@ import Control.DeepSeq
 import Control.Monad
 import Data.Binary
 import Data.Foldable (Foldable)
-import qualified Data.Foldable as F
+import Data.Function
 import Data.List
 import Data.Map (Map)
 import Data.Monoid
@@ -65,11 +65,10 @@ import Data.Tuple
 import Foreign.C.Types (CInt(..))
 import System.Directory
 import System.IO.Unsafe
-import Data.Function
+import qualified Control.Monad.Par as P
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
 import qualified Data.Map as Map
-import qualified Control.Monad.Par as P
 
 
 -- | Supported SVM classifiers
@@ -230,12 +229,15 @@ crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
     (m,res) <- crossvalidate (generalizeRegressor rtype) kernel folds doubleDataSet
     return (m,res)
 
+data ChehLinResult = Result {cValue, gammaValue, cvAccuracy :: !Double }
+instance NFData ChehLinResult 
+
 -- | Train an RBF classifier using crossvalidation and parameter grid search. This is the
---   recommended way of building classifiers for small to medium size datasets.
+--   recommended way of building classifiers for small to medium size datasets.  
 chehLin :: (Foldable f, SVMVector b, NFData a, Ord a) =>
-            f (a,b) -> IO ((Double,Double,Double),SVMClassifier a)
-chehLin v = do
-     let experiments = [ ResultValue c sigma acc
+            f (a,b) -> (ChehLinResult,SVMClassifier a)
+chehLin v = (Result c s a,clf)
+   where experiments = [ Result c sigma acc
                        | c <-  pows 2 (-5) 15
                        , sigma <- pows 2 (-15) 3
                        , let res = snd $ crossvalidateClassifier (C c) (RBF sigma) 10 listSet 1231
@@ -248,14 +250,11 @@ chehLin v = do
          count p = length . filter p
          listSet = F.toList v
          pows base start end = [base ** i | i <- [start..end]]
-     let results =  P.runPar . P.parMap id $ experiments
-         (ResultValue c s a) =  maximumBy (compare `on` measure) results
+         results =  P.runPar . P.parMap id $ experiments
+         (Result c s a) =  maximumBy (compare `on` measure) results
          (msg,clf) = trainClassifier (C c) (RBF s) v
-     return $!! ((c,s,a),clf)
 
-data Result = ResultValue !Double !Double !Double deriving Show
-instance NFData Result
-measure (ResultValue _ _ f) = f
+measure (Result _ _ f) = f
 
 
 -- | Predict value for given vector via regression
