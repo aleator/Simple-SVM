@@ -4,7 +4,7 @@ synopsis:            Medium level, simplified, bindings to libsvm
 description:
   This is a set of simplified bindings to libsvm <http://www.csie.ntu.edu.tw/~cjlin/libsvm/> suite
   of support vector machines. This package provides tools for classification, one-class classification
-  and support vector regression. 
+  and support vector regression.
   .
   Changes in version 0.2.6.1
   .
@@ -12,13 +12,13 @@ description:
   .
   Changes in version 0.2.6
   .
-  * Fixed a critical bug with training and crossvalidation 
+  * Fixed a critical bug with training and crossvalidation
   .
   * Slight performance improvements
   .
   Changes in version 0.2.5
   .
-  * Crossvalidation for the high level interface 
+  * Crossvalidation for the high level interface
   .
   Changes in version 0.2.2
   .
@@ -26,7 +26,7 @@ description:
   .
   Changes in version 0.2.1
   .
-  * Added operations for saving and loading SVMs 
+  * Added operations for saving and loading SVMs
   .
   Changes in version 0.2.0
   .
@@ -51,7 +51,7 @@ cabal-version:       >= 1.8
 -- Flag benchmark
 --   Description: Compile the benchmarking system
 --   Default:     False
-  
+
 
 library
 --  extra-source-files:
