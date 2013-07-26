@@ -64,16 +64,16 @@ library
     AI.SVM.Simple
     AI.SVM.Base
   build-depends:
-    base         >= 4   && < 5,
-    bytestring   >= 0.9.1 && < 0.10,
-    bindings-svm >= 0.2.0 && < 0.3,
-    binary       >= 0.5 && < 0.6,
-    mwc-random   >= 0.8 && < 0.13,
-    vector       >= 0.7.0.1 && < 1.1,
-    directory    >= 1.1.0.0 && < 1.4,
-    containers   >= 0.4.2.0 && < 0.5,
-    deepseq      >= 1.1     && < 1.6,
-    monad-par    >= 0.1.0.3 && < 0.1.1
+    base         >= 4 && < 5,
+    bytestring   >= 0.9.1,
+    bindings-svm >= 0.2.0,
+    binary       >= 0.5,
+    mwc-random   >= 0.8,
+    vector       >= 0.7.0.1,
+    directory    >= 1.1.0.0,
+    containers   >= 0.4.2.0,
+    deepseq      >= 1.1,
+    monad-par    >= 0.1.0.3
 
 -- executable svm-benchmark
 --     if !flag(benchmark)
