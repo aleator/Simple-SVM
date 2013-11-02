@@ -3,6 +3,7 @@
 module Main where
 
 import AI.SVM.Simple
+import AI.SVM.Base
 import qualified Data.Vector.Storable as V
 
 main = do
@@ -42,7 +43,7 @@ main = do
     (msg, r) <- crossvalidate (C_SVC 1) (RBF 1) 2 trainingData
     print ("cval",msg, r)
 
-    (msg,svm2) <- trainSVM (C_SVC 1) (RBF 1) trainingData
+    (msg,svm2) <- trainSVM (C_SVC 1) (RBF 1) [] trainingData
     print $ predict svm2 $ [0,1::Double]
     print $ predict svm2 $ [1,0::Double]
     print $ predict svm2 $ [0.5,0.5::Double]
