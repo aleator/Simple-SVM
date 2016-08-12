@@ -230,7 +230,8 @@ crossvalidateRegressor rtype kernel folds dataset seed = unsafePerformIO $ do
     return (m,res)
 
 data ChehLinResult = Result {cValue, gammaValue, cvAccuracy :: !Double }
-instance NFData ChehLinResult 
+instance NFData ChehLinResult where rnf x = seq x ()
+
 
 -- | Train an RBF classifier using crossvalidation and parameter grid search. This is the
 --   recommended way of building classifiers for small to medium size datasets.  
