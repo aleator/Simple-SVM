@@ -65,15 +65,15 @@ library
     AI.SVM.Base
   build-depends:
     base         >= 4   && < 5,
-    bytestring   >= 0.9.1 && < 0.10,
-    bindings-svm >= 0.2.0 && < 0.3,
-    binary       >= 0.5 && < 0.6,
-    mwc-random   >= 0.8 && < 0.13,
-    vector       >= 0.7.0.1 && < 1.1,
-    directory    >= 1.1.0.0 && < 1.4,
-    containers   >= 0.4.2.0 && < 0.5,
-    deepseq      >= 1.1     && < 1.6,
-    monad-par    >= 0.1.0.3 && < 0.1.1
+    bytestring  ,
+    bindings-svm ,
+    binary       ,
+    mwc-random   ,
+    vector       ,
+    directory    ,
+    containers   ,
+    deepseq      ,
+    monad-par 
 
 -- executable svm-benchmark
 --     if !flag(benchmark)
